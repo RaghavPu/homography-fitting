@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+# SAM2 repo + model weights
+sam2/
+checkpoints/
+*.pt
+
+# macOS
+.DS_Store
+
+# IDE
+.cursor/
+.vscode/
