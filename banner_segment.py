@@ -484,12 +484,7 @@ def composite_logo(frame: np.ndarray, corners: np.ndarray, logo_path: str,
             (new_l - new_l_lo) * scale + orig_l_lo, 0, 255)
         warped_rgb = cv2.cvtColor(new_lab.astype(np.uint8), cv2.COLOR_LAB2BGR)
 
-        # Subtle surface color tint
-        tint = 0.10
-        warped_f = warped_rgb.astype(np.float32)
-        warped_f[logo_pixels] = warped_f[logo_pixels] * (1 - tint) + bg_color.astype(np.float32) * tint
-        warped_rgb = np.clip(warped_f, 0, 255).astype(np.uint8)
-        print(f"  Remapped L [{new_l_lo:.0f},{new_l_hi:.0f}] → [{orig_l_lo:.0f},{orig_l_hi:.0f}], tint={tint:.0%}")
+        print(f"  Remapped L [{new_l_lo:.0f},{new_l_hi:.0f}] → [{orig_l_lo:.0f},{orig_l_hi:.0f}]")
 
     # Soften alpha edges for smoother blending
     warped_alpha = cv2.GaussianBlur(warped_alpha, (5, 5), 1.0)
