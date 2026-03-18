@@ -406,59 +406,98 @@ def fit_quadrilateral(mask: np.ndarray, axis: str = "short") -> np.ndarray | Non
 # ---------------------------------------------------------------------------
 
 def composite_logo(frame: np.ndarray, corners: np.ndarray, logo_path: str,
+                   mask: np.ndarray,
                    save_path: str = "sponsor_morph_result.png") -> np.ndarray:
-    """Warp a sponsor logo into the detected quad region."""
+    """Inpaint the old logo away, then warp only the opaque pixels of the
+    new sponsor logo into the detected quad region."""
     logo_bgra = cv2.imread(logo_path, cv2.IMREAD_UNCHANGED)
     if logo_bgra is None:
         raise RuntimeError(f"Could not read logo: {logo_path}")
+    if logo_bgra.shape[2] == 3:
+        logo_bgra = cv2.cvtColor(logo_bgra, cv2.COLOR_BGR2BGRA)
 
     h, w = frame.shape[:2]
 
-    # Sample background color from a thin border around the quad
-    quad_mask = np.zeros((h, w), dtype=np.uint8)
-    cv2.fillPoly(quad_mask, [corners.astype(np.int32)], 255)
-    kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
-    border_mask = cv2.dilate(quad_mask, kern) & ~quad_mask
-    bg_color = np.median(frame[border_mask > 0], axis=0).astype(np.uint8)
-    print(f"  Background color (BGR): {tuple(int(c) for c in bg_color)}")
+    # Step 1: Inpaint the masked region to erase the old logo
+    mask_u8 = (mask > 0).astype(np.uint8) * 255
+    dilate_kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask_u8 = cv2.dilate(mask_u8, dilate_kern)
+    inpainted = cv2.inpaint(frame, mask_u8, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
+    print("  Inpainted old logo region")
 
-    # Canvas sized to match quad proportions
+    # Sample bg color for luminosity matching
+    border_mask = cv2.dilate(mask_u8, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))) & ~mask_u8
+    bg_color = np.median(frame[border_mask > 0], axis=0).astype(np.uint8)
+
+    # Step 2: Build logo + alpha canvases at the quad's aspect ratio
     w_top = np.linalg.norm(corners[1] - corners[0])
     w_bot = np.linalg.norm(corners[2] - corners[3])
     h_left = np.linalg.norm(corners[3] - corners[0])
     h_right = np.linalg.norm(corners[2] - corners[1])
     canvas_w = int(max(w_top, w_bot))
     canvas_h = int(max(h_left, h_right))
-    canvas = np.full((canvas_h, canvas_w, 3), bg_color, dtype=np.uint8)
 
-    # Resize logo to fit canvas with a small margin
+    rgb_canvas = np.zeros((canvas_h, canvas_w, 3), dtype=np.uint8)
+    alpha_canvas = np.zeros((canvas_h, canvas_w), dtype=np.uint8)
+
     logo_h, logo_w = logo_bgra.shape[:2]
-    pad = 4
-    scale = min((canvas_w - 2 * pad) / logo_w, (canvas_h - 2 * pad) / logo_h)
+    pad_frac = 0.05
+    pad_w = int(canvas_w * pad_frac)
+    pad_h = int(canvas_h * pad_frac)
+    scale = min((canvas_w - 2 * pad_w) / logo_w, (canvas_h - 2 * pad_h) / logo_h)
     new_w, new_h = int(logo_w * scale), int(logo_h * scale)
     logo_resized = cv2.resize(logo_bgra, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-    # Centre logo on canvas with alpha blending
     x0 = (canvas_w - new_w) // 2
     y0 = (canvas_h - new_h) // 2
-    if logo_resized.shape[2] == 4:
-        alpha = logo_resized[:, :, 3:4].astype(np.float32) / 255.0
-        roi = canvas[y0:y0 + new_h, x0:x0 + new_w].astype(np.float32)
-        canvas[y0:y0 + new_h, x0:x0 + new_w] = (
-            logo_resized[:, :, :3].astype(np.float32) * alpha + roi * (1 - alpha)
-        ).astype(np.uint8)
-    else:
-        canvas[y0:y0 + new_h, x0:x0 + new_w] = logo_resized[:, :, :3]
+    rgb_canvas[y0:y0 + new_h, x0:x0 + new_w] = logo_resized[:, :, :3]
+    alpha_canvas[y0:y0 + new_h, x0:x0 + new_w] = logo_resized[:, :, 3]
 
-    # Warp canvas into quad via homography
+    # Warp both canvases into frame space
     src = np.array([[0, 0], [canvas_w, 0], [canvas_w, canvas_h], [0, canvas_h]], dtype=np.float32)
     H, _ = cv2.findHomography(src, corners.astype(np.float32))
-    warped = cv2.warpPerspective(canvas, H, (w, h))
-    warp_mask = cv2.warpPerspective(np.ones((canvas_h, canvas_w), dtype=np.uint8) * 255, H, (w, h))
+    warped_rgb = cv2.warpPerspective(rgb_canvas, H, (w, h))
+    warped_alpha = cv2.warpPerspective(alpha_canvas, H, (w, h))
 
-    result = frame.copy()
-    m = warp_mask > 0
-    result[m] = warped[m]
+    # Match new logo luminosity to the original logo in the frame.
+    # Measure the original's L range and remap the new logo's L to match,
+    # plus a subtle color tint so it looks painted on the surface.
+    logo_pixels = warped_alpha > 0
+    if logo_pixels.any():
+        orig_lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB).astype(np.float32)
+        orig_mask_l = orig_lab[mask > 0, 0]
+        orig_l_lo, orig_l_hi = np.percentile(orig_mask_l, [10, 90])
+        bg_lab = cv2.cvtColor(np.full((1, 1, 3), bg_color, dtype=np.uint8), cv2.COLOR_BGR2LAB)
+        orig_bg_l = float(bg_lab[0, 0, 0])
+        print(f"  Original region L: bg={orig_bg_l:.0f}, logo range=[{orig_l_lo:.0f}, {orig_l_hi:.0f}]")
+
+        new_lab = cv2.cvtColor(warped_rgb, cv2.COLOR_BGR2LAB).astype(np.float32)
+        new_l = new_lab[logo_pixels, 0]
+        new_l_lo, new_l_hi = np.percentile(new_l, [10, 90])
+
+        # Remap new logo L range → original logo L range
+        if new_l_hi - new_l_lo > 1:
+            scale = (orig_l_hi - orig_l_lo) / (new_l_hi - new_l_lo)
+        else:
+            scale = 1.0
+        new_lab[logo_pixels, 0] = np.clip(
+            (new_l - new_l_lo) * scale + orig_l_lo, 0, 255)
+        warped_rgb = cv2.cvtColor(new_lab.astype(np.uint8), cv2.COLOR_LAB2BGR)
+
+        # Subtle surface color tint
+        tint = 0.10
+        warped_f = warped_rgb.astype(np.float32)
+        warped_f[logo_pixels] = warped_f[logo_pixels] * (1 - tint) + bg_color.astype(np.float32) * tint
+        warped_rgb = np.clip(warped_f, 0, 255).astype(np.uint8)
+        print(f"  Remapped L [{new_l_lo:.0f},{new_l_hi:.0f}] → [{orig_l_lo:.0f},{orig_l_hi:.0f}], tint={tint:.0%}")
+
+    # Soften alpha edges for smoother blending
+    warped_alpha = cv2.GaussianBlur(warped_alpha, (5, 5), 1.0)
+
+    # Blend: only opaque logo pixels are painted onto the inpainted frame
+    a = (warped_alpha.astype(np.float32) / 255.0)[..., None]
+    result = (warped_rgb.astype(np.float32) * a
+              + inpainted.astype(np.float32) * (1.0 - a)).astype(np.uint8)
 
     cv2.imwrite(save_path, result)
     print(f"  Saved composited result: {save_path}")
@@ -574,8 +613,12 @@ def main():
     composited = None
     if args.logo and corners_map:
         print("[5/5] Compositing logo …", flush=True)
-        first_corners = next(iter(corners_map.values()))
-        composited = composite_logo(frame, first_corners, args.logo)
+        composited = frame
+        for obj_id in sorted(corners_map):
+            print(f"  Object {obj_id}:")
+            composited = composite_logo(composited, corners_map[obj_id], args.logo,
+                                        mask=masks[obj_id],
+                                        save_path="sponsor_morph_result.png")
 
     print(f"  Visualizing ({len(corners_map)} parallelograms) …", flush=True)
     visualize(frame, masks, corners_map, composited=composited, save_path=args.save)
