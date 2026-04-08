@@ -1,0 +1,24 @@
+pipeline:
+  segmenter:
+    type: sam2_image
+    checkpoint: sam2/checkpoints/sam2.1_hiera_tiny.pt
+    model_cfg: configs/sam2.1/sam2.1_hiera_t.yaml
+
+  fitter:
+    type: lp
+
+  compositor:
+    type: alpha
+    params:
+      padding: 0.05
+
+  camera:
+    focal_length: null
+
+input:
+  video: data/tennis-clip.mp4
+  logo: data/sponsor_logo.png
+  prompts: null
+
+output:
+  dir: experiments/

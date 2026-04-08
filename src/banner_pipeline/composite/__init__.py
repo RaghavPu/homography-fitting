@@ -1,0 +1,1 @@
+"""Logo/overlay compositing strategies."""

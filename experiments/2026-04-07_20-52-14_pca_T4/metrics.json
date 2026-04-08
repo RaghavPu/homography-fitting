@@ -1,0 +1,17 @@
+{
+  "runs": 1,
+  "gpu": "Tesla T4",
+  "gpu_memory_gb": 14.6,
+  "input_fps": 25.0,
+  "segment_total_s": 95.652592705,
+  "num_frames": 202,
+  "write_video_s": 2.582221422999993,
+  "fit_mean_ms": 11.19,
+  "fit_std_ms": 4.32,
+  "composite_mean_ms": 243.85,
+  "composite_std_ms": 20.96,
+  "total_s": 149.7517,
+  "output_fps": 1.35,
+  "run_total_s": 152.037044145,
+  "mode": "video"
+}
