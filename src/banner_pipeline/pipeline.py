@@ -343,11 +343,15 @@ def run_pipeline_video(
 
             masks_for_frame = video_segments.get(frame_idx, {})
 
+            # Squeeze masks to 2D (SAM2 video outputs may have extra dims).
+            masks_2d: dict[int, np.ndarray] = {
+                obj_id: mask.squeeze() for obj_id, mask in masks_for_frame.items()
+            }
+
             # Fit quads for this frame.
             t_fit = time.perf_counter()
             corners_map: dict[int, np.ndarray] = {}
-            for obj_id, mask in masks_for_frame.items():
-                mask_2d = mask.squeeze()
+            for obj_id, mask_2d in masks_2d.items():
                 corners = fitter.fit(mask_2d, **fitter_params)
                 if corners is not None:
                     corners_map[obj_id] = corners
@@ -366,7 +370,7 @@ def run_pipeline_video(
                         frame_bgr,
                         corners_map[obj_id],
                         overlay,
-                        mask=masks_for_frame.get(obj_id),
+                        mask=masks_2d.get(obj_id),
                         **extra_kw,
                     )
                 composite_times.append(time.perf_counter() - t_comp)
