@@ -1,0 +1,36 @@
+pipeline:
+  mode: video
+  segmenter:
+    type: sam2_image
+    checkpoint: sam2/checkpoints/sam2.1_hiera_tiny.pt
+    model_cfg: configs/sam2.1/sam2.1_hiera_t.yaml
+  fitter:
+    type: pca
+    params:
+      axis: short
+  compositor:
+    type: inpaint
+    params:
+      padding: 0.05
+  camera:
+    focal_length: null
+input:
+  video: data/tennis-clip.mp4
+  logo: data/sponsor_logo.png
+  prompts:
+  - obj_id: 1
+    points:
+    - - 876
+      - 37
+    - - 877
+      - 68
+    - - 945
+      - 67
+    - - 1023
+      - 67
+    - - 1029
+      - 35
+    - - 950
+      - 34
+output:
+  dir: experiments/

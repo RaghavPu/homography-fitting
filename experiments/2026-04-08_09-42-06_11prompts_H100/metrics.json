@@ -1,0 +1,22 @@
+{
+  "runs": 3,
+  "gpu": "NVIDIA H100 80GB HBM3",
+  "gpu_memory_gb": 79.4,
+  "total_s": {
+    "mean": 319.3489,
+    "std": 6.0649,
+    "min": 310.7721,
+    "max": 323.6931
+  },
+  "run_total_s": {
+    "mean": 322.0068,
+    "std": 6.1316,
+    "min": 313.3356,
+    "max": 326.3919
+  },
+  "fps": {
+    "mean": 0.0,
+    "min": 0.0,
+    "max": 0.0
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "runs": 3,
+  "gpu": "NVIDIA A100-SXM4-40GB",
+  "gpu_memory_gb": 39.5,
+  "total_s": {
+    "mean": 49.0954,
+    "std": 0.8336,
+    "min": 47.9171,
+    "max": 49.7175
+  },
+  "run_total_s": {
+    "mean": 51.8566,
+    "std": 0.8443,
+    "min": 50.7052,
+    "max": 52.7064
+  },
+  "fps": {
+    "mean": 0.02,
+    "min": 0.02,
+    "max": 0.02
+  }
+}
