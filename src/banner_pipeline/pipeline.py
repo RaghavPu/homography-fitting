@@ -184,6 +184,9 @@ def run_pipeline(
         if config_path:
             _save_prompts_to_config(config, prompts, config_path)
 
+    metrics["num_prompts"] = len(prompts)
+    metrics["num_prompt_points"] = sum(len(p.points) for p in prompts)
+
     # --- Segment ---
     t0 = time.perf_counter()
     segmenter = build_segmenter(pipeline_cfg["segmenter"])
@@ -302,6 +305,8 @@ def run_pipeline_video(
     # --- Input video info ---
     input_fps = get_video_fps(video_path)
     metrics["input_fps"] = input_fps
+    metrics["num_prompts"] = len(prompts)
+    metrics["num_prompt_points"] = sum(len(p.points) for p in prompts)
 
     # --- Segment + track across all frames ---
     t0 = time.perf_counter()
