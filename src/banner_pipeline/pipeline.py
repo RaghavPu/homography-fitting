@@ -186,6 +186,11 @@ def run_pipeline(
 
     metrics["num_prompts"] = len(prompts)
     metrics["num_prompt_points"] = sum(len(p.points) for p in prompts)
+    metrics["video_path"] = input_cfg["video"]
+    metrics["fitter_type"] = pipeline_cfg["fitter"]["type"]
+    metrics["compositor_type"] = pipeline_cfg["compositor"]["type"]
+    metrics["checkpoint"] = pipeline_cfg["segmenter"].get("checkpoint", "")
+    metrics["frame_height"], metrics["frame_width"] = frame.shape[:2]
 
     # --- Segment ---
     t0 = time.perf_counter()
@@ -307,6 +312,14 @@ def run_pipeline_video(
     metrics["input_fps"] = input_fps
     metrics["num_prompts"] = len(prompts)
     metrics["num_prompt_points"] = sum(len(p.points) for p in prompts)
+    metrics["video_path"] = video_path
+    metrics["fitter_type"] = pipeline_cfg["fitter"]["type"]
+    metrics["compositor_type"] = pipeline_cfg["compositor"]["type"]
+    metrics["checkpoint"] = pipeline_cfg["segmenter"].get("checkpoint", "")
+
+    # Read frame size from the first frame.
+    first_frame = load_frame(video_path, frame_idx=0)
+    metrics["frame_height"], metrics["frame_width"] = first_frame.shape[:2]
 
     # --- Segment + track across all frames ---
     t0 = time.perf_counter()
@@ -317,6 +330,7 @@ def run_pipeline_video(
     )
     metrics["segment_total_s"] = time.perf_counter() - t0
     metrics["num_frames"] = len(frame_names)
+    metrics["duration_s"] = round(len(frame_names) / input_fps, 2)
     print(
         f"[video] Tracked {len(frame_names)} frames in {metrics['segment_total_s']:.2f}s",
     )

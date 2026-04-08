@@ -1,5 +1,5 @@
 pipeline:
-  mode: image
+  mode: video
   segmenter:
     type: sam2_image
     checkpoint: sam2/checkpoints/sam2.1_hiera_tiny.pt
