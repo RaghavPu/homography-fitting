@@ -67,10 +67,70 @@ Pass any of these to `--gpu`:
 
 ### Benchmarking across GPUs
 
+Single config, single GPU, multiple averaged runs:
+
 ```bash
 uv run modal run scripts/modal_run.py --config configs/default.yaml --gpu T4 --mode video --benchmark 5
 uv run modal run scripts/modal_run.py --config configs/default.yaml --gpu A100 --mode video --benchmark 5
 ```
+
+### Benchmark matrix (multiple prompt counts × multiple GPUs)
+
+For systematic comparison, use the matrix runner. It executes every (config, GPU) combination and saves each as its own experiment directory.
+
+**Step 1: Set up configs in `configs/matrix/`**
+
+The repo ships with three templates that use the same input video but different numbers of tracked objects:
+
+- `configs/matrix/1prompt.yaml` — single object (FPS ceiling)
+- `configs/matrix/5prompts.yaml` — typical load
+- `configs/matrix/11prompts.yaml` — heavy load
+
+For 1prompt and 5prompts, you need to collect the click coordinates first (11prompts ships pre-populated):
+
+```bash
+uv run python scripts/collect_prompts.py --config configs/matrix/1prompt.yaml
+uv run python scripts/collect_prompts.py --config configs/matrix/5prompts.yaml
+```
+
+You can also create your own matrix configs (different videos, fitters, compositors, etc.) — just `cp` an existing one and edit.
+
+**Step 2: Run the matrix**
+
+Two options:
+
+```bash
+# Sequential — runs one at a time, simple output
+./scripts/run_matrix.sh
+
+# Parallel — runs all combinations simultaneously, ~10x faster
+uv run python scripts/run_matrix_parallel.py
+```
+
+Defaults: `T4 A100 H100 B200` × 3 configs × `--benchmark 3` = 12 jobs.
+
+**Modal concurrency limit:** Starter accounts have a limit of 10 concurrent GPUs. Throttle the parallel runner accordingly:
+
+```bash
+uv run python scripts/run_matrix_parallel.py --max-parallel 10
+```
+
+Excess jobs queue automatically and start as soon as a slot frees up. All combinations still run.
+
+**Customize the matrix:**
+
+```bash
+# Run only specific GPUs
+uv run python scripts/run_matrix_parallel.py --gpus T4 A100
+
+# Run only specific configs
+uv run python scripts/run_matrix_parallel.py --configs configs/matrix/1prompt.yaml configs/matrix/11prompts.yaml
+
+# Lower benchmark count for quick test
+uv run python scripts/run_matrix_parallel.py --benchmark 1
+```
+
+Each combination produces an experiment directory named `<config>_<gpu>` (e.g. `5prompts_A100`), so they're easy to compare.
 
 ## Metrics
 
