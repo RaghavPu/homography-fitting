@@ -1,6 +1,6 @@
 # Banner Pipeline
 
-Video banner/logo replacement using SAM2 segmentation. Detects billboard regions in video frames, fits perspective-aware quadrilaterals, and composites new logos with correct aspect ratio and luminosity matching.
+Video banner/logo replacement using SAM2 segmentation. Detects billboard regions in video frames, tracks them across all frames, fits perspective-aware quadrilaterals, and composites new logos with correct aspect ratio and luminosity matching.
 
 ## Setup
 
@@ -18,7 +18,7 @@ uv run pre-commit install
 uv run modal setup
 ```
 
-SAM2 setup is only needed for **local** runs. Modal downloads checkpoints automatically.
+SAM2 setup is only needed for **local** runs. Modal builds SAM2 from source automatically.
 
 ```bash
 # Only if running locally (not needed for Modal)
@@ -27,28 +27,31 @@ pip install -e ./sam2
 cd sam2/checkpoints && ./download_ckpts.sh && cd ../..
 ```
 
-## Pipeline stages
-
-```
-Input frame → [Segment] → [Fit quad] → [Composite] → Output frame
-                SAM2        PCA/LP/Hull   Inpaint/Alpha
-```
-
-Each stage is swappable via the YAML config.
-
-## Running on Modal (GPU)
+## Running the pipeline
 
 Two-step process: collect clicks locally, then run on a remote GPU.
 
-```bash
-# Step 1: Click on banner regions (local, no GPU needed)
-uv run python scripts/collect_prompts.py --config configs/default.yaml
+### Step 1: Select banner regions (local, no GPU needed)
 
-# Step 2: Run on a GPU via Modal
-uv run modal run scripts/modal_run.py --config configs/default.yaml --gpu T4
+```bash
+uv run python scripts/collect_prompts.py --config configs/default.yaml
 ```
 
-Available GPUs (pass any to `--gpu`):
+This opens the first frame of the video. Click on the banner region(s) you want to track. The coordinates are saved into the config file automatically.
+
+### Step 2: Run on a GPU via Modal
+
+```bash
+# Video mode (processes all frames, outputs .mp4)
+uv run modal run scripts/modal_run.py --config configs/default.yaml --gpu T4 --mode video
+
+# Image mode (processes single frame, outputs .png)
+uv run modal run scripts/modal_run.py --config configs/default.yaml --gpu T4 --mode image
+```
+
+### Available GPUs
+
+Pass any of these to `--gpu`:
 
 | GPU | VRAM | Cost/hr |
 |-----|------|---------|
@@ -62,44 +65,67 @@ Available GPUs (pass any to `--gpu`):
 | `H200` | 141 GB | $4.54 |
 | `B200` | 192 GB | $6.25 |
 
-Benchmark across GPU tiers:
+### Benchmarking across GPUs
 
 ```bash
-uv run modal run scripts/modal_run.py --config configs/default.yaml --gpu T4 --benchmark 5
-uv run modal run scripts/modal_run.py --config configs/default.yaml --gpu A100 --benchmark 5
-uv run modal run scripts/modal_run.py --config configs/default.yaml --gpu B200 --benchmark 5
+uv run modal run scripts/modal_run.py --config configs/default.yaml --gpu T4 --mode video --benchmark 5
+uv run modal run scripts/modal_run.py --config configs/default.yaml --gpu A100 --mode video --benchmark 5
 ```
 
-Results are saved to `experiments/<timestamp>_<name>/` with `metrics.json`.
+## Metrics
+
+Each run produces a `metrics.json` in the experiment directory. Example output (video mode, T4):
+
+```json
+{
+  "gpu": "Tesla T4",
+  "gpu_memory_gb": 14.6,
+  "mode": "video",
+  "num_frames": 202,
+  "input_fps": 25.0,
+  "segment_total_s": 95.68,
+  "fit_mean_ms": 10.25,
+  "composite_mean_ms": 202.53,
+  "write_video_s": 2.54,
+  "total_s": 141.21,
+  "output_fps": 1.43
+}
+```
+
+| Metric | Description |
+|--------|-------------|
+| `num_frames` | Total frames in the video |
+| `input_fps` | Original video framerate |
+| `segment_total_s` | Time for SAM2 to track objects across all frames |
+| `fit_mean_ms` | Average time to fit a quad per frame |
+| `composite_mean_ms` | Average time to composite logo per frame |
+| `write_video_s` | Time to encode the output video |
+| `total_s` | End-to-end wall time |
+| `output_fps` | Processing speed (`num_frames / total_s`) — compare this to `input_fps` to gauge how far from real-time |
 
 ## Experiments and reproducibility
 
-Each experiment saves a self-contained directory:
+Each run saves to `experiments/<timestamp>_<name>/`:
 
 ```
-experiments/2026-04-07_19-50-00_pca_T4/
-  config.yaml      # frozen config with exact click coordinates
+experiments/2026-04-07_20-38-28_pca_T4/
+  config.yaml      # frozen config with exact click coordinates + all settings
   metrics.json      # timing, FPS, GPU info
   outputs/
-    composited.png   # result image
-    mask_obj1.png    # SAM2 masks
+    composited.mp4   # output video (or .png for image mode)
 ```
 
-To reproduce any experiment, run it with the saved config:
+Configs and metrics are tracked in git. Outputs (large files) are gitignored but can be reproduced from the saved config:
 
 ```bash
-uv run modal run scripts/modal_run.py --config experiments/2026-04-07_19-50-00_pca_T4/config.yaml --gpu T4
-```
+# Reproduce an experiment exactly
+uv run modal run scripts/modal_run.py --config experiments/2026-04-07_20-38-28_pca_T4/config.yaml --gpu T4
 
-To reuse the same coordinates with different settings, copy the config and edit it:
-
-```bash
-cp experiments/2026-04-07_19-50-00_pca_T4/config.yaml configs/experiments/my_test.yaml
+# Reuse same coordinates with different settings
+cp experiments/2026-04-07_20-38-28_pca_T4/config.yaml configs/experiments/my_test.yaml
 # edit fitter.type, compositor.type, etc.
-uv run modal run scripts/modal_run.py --config configs/experiments/my_test.yaml --gpu A100
+uv run modal run scripts/modal_run.py --config configs/experiments/my_test.yaml --gpu A100 --mode video
 ```
-
-Click coordinates are saved in the config — you never need to re-click to reproduce or vary an experiment.
 
 ## Running locally
 
@@ -109,9 +135,6 @@ uv run python scripts/run_pipeline.py --config configs/default.yaml --save resul
 
 # Run experiment with saved outputs + metrics
 uv run python scripts/run_experiment.py --config configs/default.yaml
-
-# Benchmark FPS locally
-uv run python scripts/benchmark_fps.py --config configs/default.yaml --runs 5
 ```
 
 ## Swapping components
@@ -150,8 +173,9 @@ src/banner_pipeline/
   composite/  inpaint.py, alpha.py                 # compositing strategies
   pipeline.py                                      # orchestration + config
 configs/      default.yaml, experiments/            # experiment configs
-scripts/      run_pipeline.py, run_experiment.py, benchmark_fps.py,
-              collect_prompts.py, modal_run.py
+scripts/      collect_prompts.py, modal_run.py,     # main workflow
+              run_pipeline.py, run_experiment.py,    # local alternatives
+              benchmark_fps.py
 ```
 
 See [MIGRATION.md](MIGRATION.md) for how the old files map to this structure.
