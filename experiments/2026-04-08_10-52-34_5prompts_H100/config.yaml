@@ -1,0 +1,92 @@
+pipeline:
+  mode: video
+  segmenter:
+    type: sam2_image
+    checkpoint: sam2/checkpoints/sam2.1_hiera_tiny.pt
+    model_cfg: configs/sam2.1/sam2.1_hiera_t.yaml
+  fitter:
+    type: pca
+    params:
+      axis: short
+  compositor:
+    type: inpaint
+    params:
+      padding: 0.05
+  camera:
+    focal_length: null
+input:
+  video: data/tennis-clip.mp4
+  logo: data/sponsor_logo.png
+  prompts:
+  - obj_id: 1
+    points:
+    - - 680
+      - 35
+    - - 681
+      - 66
+    - - 749
+      - 64
+    - - 831
+      - 68
+    - - 831
+      - 33
+    - - 754
+      - 35
+  - obj_id: 2
+    points:
+    - - 872
+      - 34
+    - - 873
+      - 66
+    - - 946
+      - 66
+    - - 1027
+      - 68
+    - - 1027
+      - 34
+    - - 954
+      - 36
+  - obj_id: 3
+    points:
+    - - 1072
+      - 41
+    - - 1072
+      - 67
+    - - 1137
+      - 66
+    - - 1226
+      - 68
+    - - 1222
+      - 32
+    - - 1146
+      - 37
+  - obj_id: 4
+    points:
+    - - 1271
+      - 54
+    - - 1270
+      - 32
+    - - 1330
+      - 36
+    - - 1408
+      - 37
+    - - 1408
+      - 54
+    - - 1336
+      - 55
+  - obj_id: 5
+    points:
+    - - 1449
+      - 56
+    - - 1447
+      - 32
+    - - 1517
+      - 35
+    - - 1586
+      - 39
+    - - 1585
+      - 61
+    - - 1514
+      - 60
+output:
+  dir: experiments/
