@@ -78,7 +78,7 @@ checkpoints_volume = modal.Volume.from_name(
 @app.function(
     gpu=_GPU,
     volumes={"/checkpoints": checkpoints_volume},
-    timeout=3600,
+    timeout=86400,  # 24h — Modal's max
 )
 def run_on_gpu(
     config_dict: dict,
