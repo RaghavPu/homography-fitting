@@ -26,13 +26,18 @@ def load_frame(path: str, frame_idx: int = 0) -> np.ndarray:
     try:
         cmd = [
             "ffmpeg",
-            "-i", path,
-            "-vf", f"select=eq(n\\,{frame_idx})",
-            "-vframes", "1",
-            "-q:v", "2",
+            "-i",
+            path,
+            "-vf",
+            f"select=eq(n\\,{frame_idx})",
+            "-vframes",
+            "1",
+            "-q:v",
+            "2",
             tmp,
             "-y",
-            "-loglevel", "error",
+            "-loglevel",
+            "error",
         ]
         subprocess.run(cmd, check=True)
         frame = cv2.imread(tmp)
@@ -52,12 +57,16 @@ def extract_all_frames(video_path: str, out_dir: str) -> list[str]:
     """
     cmd = [
         "ffmpeg",
-        "-i", video_path,
-        "-q:v", "2",
-        "-start_number", "0",
+        "-i",
+        video_path,
+        "-q:v",
+        "2",
+        "-start_number",
+        "0",
         os.path.join(out_dir, "%05d.jpg"),
         "-y",
-        "-loglevel", "error",
+        "-loglevel",
+        "error",
     ]
     subprocess.run(cmd, check=True)
 
@@ -68,6 +77,23 @@ def extract_all_frames(video_path: str, out_dir: str) -> list[str]:
     if not frame_names:
         raise RuntimeError(f"No frames extracted from: {video_path}")
     return frame_names
+
+
+def write_video(
+    frames: list[np.ndarray],
+    output_path: str,
+    fps: float = 30.0,
+) -> None:
+    """Write a list of BGR frames as an MP4 video."""
+    if not frames:
+        raise ValueError("No frames to write.")
+    h, w = frames[0].shape[:2]
+    os.makedirs(str(Path(output_path).parent), exist_ok=True)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
+    for frame in frames:
+        writer.write(frame)
+    writer.release()
 
 
 def get_video_fps(video_path: str, default: float = 30.0) -> float:

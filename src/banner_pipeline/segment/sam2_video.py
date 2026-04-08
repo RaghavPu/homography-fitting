@@ -21,11 +21,7 @@ DEFAULT_MODEL_CFG = "configs/sam2.1/sam2.1_hiera_l.yaml"
 
 
 class SAM2VideoSegmenter:
-    """Wraps SAM2's video predictor for full-video object tracking.
-
-    This is *not* a :class:`SegmentationModel` (which is single-frame).
-    It operates on an entire video and writes a masked output.
-    """
+    """Wraps SAM2's video predictor for full-video object tracking."""
 
     def __init__(
         self,
@@ -36,12 +32,95 @@ class SAM2VideoSegmenter:
         self._device = detect_device(device)
         print(f"[SAM2Video] Loading model on {self._device} …", flush=True)
         self._predictor = load_sam2_video_predictor(
-            checkpoint, model_cfg, self._device,
+            checkpoint,
+            model_cfg,
+            self._device,
         )
 
     @property
     def name(self) -> str:
         return "sam2_video"
+
+    # ------------------------------------------------------------------
+    # Core propagation (shared by segment_video and mask_video)
+    # ------------------------------------------------------------------
+
+    def _propagate(
+        self,
+        video_path: str,
+        prompts: list[ObjectPrompt],
+    ) -> tuple[dict[int, dict[int, np.ndarray]], str, list[str]]:
+        """Extract frames, add prompts, propagate masks.
+
+        Returns
+        -------
+        video_segments : dict[frame_idx, dict[obj_id, np.ndarray]]
+            Per-frame binary masks for each tracked object.
+        frame_dir : str
+            Path to the temporary directory containing extracted JPEG frames.
+        frame_names : list[str]
+            Sorted list of frame filenames.
+        """
+        video_path = str(Path(video_path).expanduser().resolve())
+
+        frame_dir = tempfile.mkdtemp(prefix="sam2_frames_")
+        print("[SAM2Video] Extracting frames …", flush=True)
+        frame_names = extract_all_frames(video_path, frame_dir)
+        print(f"[SAM2Video] {len(frame_names)} frames → {frame_dir}")
+
+        # Init inference state.
+        inference_state = self._predictor.init_state(video_path=frame_dir)
+
+        # Add prompts.
+        for prompt in prompts:
+            kwargs: dict = dict(
+                inference_state=inference_state,
+                frame_idx=prompt.frame_idx,
+                obj_id=prompt.obj_id,
+            )
+            if prompt.points is not None:
+                kwargs["points"] = prompt.points
+                kwargs["labels"] = prompt.labels
+            if prompt.box is not None:
+                kwargs["box"] = prompt.box
+            self._predictor.add_new_points_or_box(**kwargs)
+            print(f"[SAM2Video] Prompt obj_id={prompt.obj_id} frame={prompt.frame_idx}")
+
+        # Propagate.
+        print("[SAM2Video] Propagating masks …", flush=True)
+        video_segments: dict[int, dict[int, np.ndarray]] = {}
+        for out_frame_idx, out_obj_ids, out_mask_logits in self._predictor.propagate_in_video(
+            inference_state
+        ):
+            video_segments[out_frame_idx] = {
+                obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
+                for i, obj_id in enumerate(out_obj_ids)
+            }
+
+        return video_segments, frame_dir, frame_names
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def segment_video(
+        self,
+        video_path: str,
+        prompts: list[ObjectPrompt],
+    ) -> tuple[dict[int, dict[int, np.ndarray]], str, list[str]]:
+        """Track objects across all frames and return per-frame masks.
+
+        Returns
+        -------
+        video_segments : dict[frame_idx, dict[obj_id, np.ndarray]]
+            Per-frame binary masks.
+        frame_dir : str
+            Temporary directory with extracted JPEG frames.
+            **Caller is responsible for cleanup** (``shutil.rmtree``).
+        frame_names : list[str]
+            Sorted frame filenames within *frame_dir*.
+        """
+        return self._propagate(video_path, prompts)
 
     def mask_video(
         self,
@@ -50,58 +129,26 @@ class SAM2VideoSegmenter:
         output_path: str,
         alpha: float = 0.45,
     ) -> str:
-        """Segment and track objects throughout *video_path*.
+        """Segment, track, and write an overlay video.
 
         Returns the absolute path to the written output video.
         """
-        video_path = str(Path(video_path).expanduser().resolve())
         output_path = str(Path(output_path).expanduser().resolve())
 
-        tmp_dir = tempfile.mkdtemp(prefix="sam2_frames_")
+        video_segments, frame_dir, frame_names = self._propagate(video_path, prompts)
         try:
-            # 1. Extract frames
-            print("[SAM2Video] Extracting frames …", flush=True)
-            frame_names = extract_all_frames(video_path, tmp_dir)
-            print(f"[SAM2Video] {len(frame_names)} frames → {tmp_dir}")
-
-            # 2. Init inference state
-            inference_state = self._predictor.init_state(video_path=tmp_dir)
-
-            # 3. Add prompts
-            for prompt in prompts:
-                kwargs: dict = dict(
-                    inference_state=inference_state,
-                    frame_idx=prompt.frame_idx,
-                    obj_id=prompt.obj_id,
-                )
-                if prompt.points is not None:
-                    kwargs["points"] = prompt.points
-                    kwargs["labels"] = prompt.labels
-                if prompt.box is not None:
-                    kwargs["box"] = prompt.box
-                self._predictor.add_new_points_or_box(**kwargs)
-                print(f"[SAM2Video] Prompt obj_id={prompt.obj_id} frame={prompt.frame_idx}")
-
-            # 4. Propagate
-            print("[SAM2Video] Propagating masks …", flush=True)
-            video_segments: dict[int, dict[int, np.ndarray]] = {}
-            for out_frame_idx, out_obj_ids, out_mask_logits in (
-                self._predictor.propagate_in_video(inference_state)
-            ):
-                video_segments[out_frame_idx] = {
-                    obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
-                    for i, obj_id in enumerate(out_obj_ids)
-                }
-
-            # 5. Write output video
             print("[SAM2Video] Writing output …", flush=True)
             self._write_video(
-                frame_names, tmp_dir, video_segments, video_path, output_path, alpha,
+                frame_names,
+                frame_dir,
+                video_segments,
+                video_path,
+                output_path,
+                alpha,
             )
             print(f"[SAM2Video] Saved: {output_path}")
-
         finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            shutil.rmtree(frame_dir, ignore_errors=True)
 
         return output_path
 

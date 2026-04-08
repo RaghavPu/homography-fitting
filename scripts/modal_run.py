@@ -95,7 +95,7 @@ def run_on_gpu(
     # Make our source code importable.
     sys.path.insert(0, "/root/src")
 
-    from banner_pipeline.pipeline import run_pipeline
+    from banner_pipeline.pipeline import run
 
     # --- Download SAM2 checkpoint if not cached ---
     checkpoint_path = config_dict["pipeline"]["segmenter"]["checkpoint"]
@@ -136,28 +136,36 @@ def run_on_gpu(
         gpu_mem = 0
         print("WARNING: No CUDA GPU detected!")
 
+    mode = config_dict.get("pipeline", {}).get("mode", "image")
+
     # --- Run pipeline (with optional benchmark) ---
     all_metrics = []
-    composited_bytes = None
+    output_bytes = None
+    output_ext = ".mp4" if mode == "video" else ".png"
 
     for i in range(benchmark_runs):
         if benchmark_runs > 1:
             print(f"\n=== Run {i + 1}/{benchmark_runs} ===")
 
         t_start = time.perf_counter()
-        results = run_pipeline(config_dict)
+        output_video_path = os.path.join(tmpdir, "output.mp4")
+        results = run(config_dict, output_path=output_video_path)
         t_total = time.perf_counter() - t_start
 
         m = results.get("metrics", {})
         m["run_total_s"] = t_total
         m["gpu"] = gpu_name
         m["gpu_memory_gb"] = round(gpu_mem, 1)
+        m["mode"] = mode
         all_metrics.append(m)
 
-        # Save composited image from last run.
-        if results["composited"] is not None:
+        # Save output from last run.
+        if mode == "video" and results.get("output_path"):
+            with open(results["output_path"], "rb") as f:
+                output_bytes = f.read()
+        elif results.get("composited") is not None:
             _, buf = cv2.imencode(".png", results["composited"])
-            composited_bytes = buf.tobytes()
+            output_bytes = buf.tobytes()
 
     # --- Aggregate benchmark stats ---
     report = {"runs": benchmark_runs, "gpu": gpu_name, "gpu_memory_gb": round(gpu_mem, 1)}
@@ -191,7 +199,8 @@ def run_on_gpu(
 
     return {
         "metrics": report,
-        "composited_png": composited_bytes,
+        "output_bytes": output_bytes,
+        "output_ext": output_ext,
     }
 
 
@@ -271,14 +280,16 @@ def main(
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
-    # Save composited image.
-    if result.get("composited_png"):
+    # Save output (image or video).
+    if result.get("output_bytes"):
         out_dir = os.path.join(exp_dir, "outputs")
         os.makedirs(out_dir, exist_ok=True)
-        img_path = os.path.join(out_dir, "composited.png")
-        with open(img_path, "wb") as f:
-            f.write(result["composited_png"])
-        print(f"Saved: {img_path}")
+        ext = result.get("output_ext", ".png")
+        out_name = "composited" + ext
+        out_path = os.path.join(out_dir, out_name)
+        with open(out_path, "wb") as f:
+            f.write(result["output_bytes"])
+        print(f"Saved: {out_path}")
 
     # Print results.
     print(f"\n{'=' * 50}")

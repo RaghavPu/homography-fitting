@@ -41,15 +41,8 @@ class InpaintCompositor(Compositor):
             dilate_kern = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
             mask_u8 = cv2.dilate(mask_u8, dilate_kern)
             inpainted = cv2.inpaint(frame, mask_u8, inpaintRadius=5, flags=cv2.INPAINT_TELEA)
-
-            border_mask = (
-                cv2.dilate(mask_u8, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15)))
-                & ~mask_u8
-            )
-            bg_color = np.median(frame[border_mask > 0], axis=0).astype(np.uint8)
         else:
             inpainted = frame.copy()
-            bg_color = np.array([40, 40, 40], dtype=np.uint8)
 
         # --- Step 2: build logo + alpha canvases ---
         w_top = np.linalg.norm(corners[1] - corners[0])
@@ -58,7 +51,7 @@ class InpaintCompositor(Compositor):
         h_right = np.linalg.norm(corners[2] - corners[1])
         avg_w = (w_top + w_bot) / 2
         avg_h = (h_left + h_right) / 2
-        scale_up = max(1.0, 500 / max(avg_w, avg_h))
+        scale_up = max(1.0, 500.0 / max(float(avg_w), float(avg_h)))
         canvas_w = max(int(avg_w * scale_up), 1)
         canvas_h = max(int(avg_h * scale_up), 1)
 
@@ -97,12 +90,11 @@ class InpaintCompositor(Compositor):
             new_l = new_lab[logo_pixels, 0]
             new_l_lo, new_l_hi = np.percentile(new_l, [10, 90])
 
-            if new_l_hi - new_l_lo > 1:
-                s = (orig_l_hi - orig_l_lo) / (new_l_hi - new_l_lo)
-            else:
-                s = 1.0
+            s = (orig_l_hi - orig_l_lo) / (new_l_hi - new_l_lo) if new_l_hi - new_l_lo > 1 else 1.0
             new_lab[logo_pixels, 0] = np.clip(
-                (new_l - new_l_lo) * s + orig_l_lo, 0, 255,
+                (new_l - new_l_lo) * s + orig_l_lo,
+                0,
+                255,
             )
             warped_rgb = cv2.cvtColor(new_lab.astype(np.uint8), cv2.COLOR_LAB2BGR)
 
@@ -110,8 +102,7 @@ class InpaintCompositor(Compositor):
         warped_alpha = cv2.GaussianBlur(warped_alpha, (5, 5), 1.0)
         a = (warped_alpha.astype(np.float32) / 255.0)[..., None]
         result = (
-            warped_rgb.astype(np.float32) * a
-            + inpainted.astype(np.float32) * (1.0 - a)
+            warped_rgb.astype(np.float32) * a + inpainted.astype(np.float32) * (1.0 - a)
         ).astype(np.uint8)
 
         return result

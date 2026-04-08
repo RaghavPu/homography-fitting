@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import cv2
 
-from banner_pipeline.pipeline import load_config, run_pipeline
+from banner_pipeline.pipeline import load_config, run
 
 
 def main():
@@ -47,23 +47,30 @@ def main():
 
     print(f"[experiment] {exp_dir}")
 
+    mode = config.get("pipeline", {}).get("mode", "image")
+    output_video_path = os.path.join(outputs_dir, "output.mp4")
+
     # Run the pipeline.
-    results = run_pipeline(config, config_path=args.config)
+    results = run(config, config_path=args.config, output_path=output_video_path)
 
     # Save outputs.
-    if results["composited"] is not None:
-        out_path = os.path.join(outputs_dir, "composited.png")
-        cv2.imwrite(out_path, results["composited"])
-        print(f"  Saved: {out_path}")
+    if mode == "video":
+        if results.get("output_path"):
+            print(f"  Video: {results['output_path']}")
+    else:
+        if results.get("composited") is not None:
+            out_path = os.path.join(outputs_dir, "composited.png")
+            cv2.imwrite(out_path, results["composited"])
+            print(f"  Saved: {out_path}")
 
-    if results["frame"] is not None:
-        out_path = os.path.join(outputs_dir, "frame.png")
-        cv2.imwrite(out_path, results["frame"])
+        if results.get("frame") is not None:
+            out_path = os.path.join(outputs_dir, "frame.png")
+            cv2.imwrite(out_path, results["frame"])
 
-    # Save masks.
-    for obj_id, mask in results.get("masks", {}).items():
-        mask_path = os.path.join(outputs_dir, f"mask_obj{obj_id}.png")
-        cv2.imwrite(mask_path, (mask > 0).astype("uint8") * 255)
+        # Save masks.
+        for obj_id, mask in results.get("masks", {}).items():
+            mask_path = os.path.join(outputs_dir, f"mask_obj{obj_id}.png")
+            cv2.imwrite(mask_path, (mask > 0).astype("uint8") * 255)
 
     # Save metrics.
     metrics = results.get("metrics", {})
