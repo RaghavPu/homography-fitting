@@ -225,6 +225,7 @@ def _download_checkpoint(filename: str, dest: str) -> None:
 def main(
     config: str = "configs/default.yaml",
     gpu: str = "T4",
+    mode: str = "",
     benchmark: int = 1,
     name: str = "",
 ):
@@ -237,6 +238,10 @@ def main(
     # Load config.
     with open(config) as f:
         config_dict = yaml.safe_load(f)
+
+    # Override mode if specified via CLI.
+    if mode:
+        config_dict.setdefault("pipeline", {})["mode"] = mode
 
     # Read input files as bytes.
     video_path = config_dict["input"]["video"]
