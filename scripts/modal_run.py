@@ -41,22 +41,33 @@ for i, arg in enumerate(sys.argv):
 # ---------------------------------------------------------------------------
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg", "libgl1", "libglib2.0-0", "git", "build-essential")
     .pip_install(
-        "torch>=2.0",
-        "torchvision>=0.15",
+        # SAM 3.1 requires torch >= 2.7 + CUDA 12.6
+        "torch==2.7.0",
+        "torchvision",
+        "torchaudio",
+        extra_index_url="https://download.pytorch.org/whl/cu126",
+    )
+    .pip_install(
         "opencv-python-headless>=4.8",
         "numpy>=1.24",
         "matplotlib>=3.7",
         "Pillow>=10.0",
         "scipy>=1.11",
         "pyyaml>=6.0",
+        "huggingface_hub>=0.23",
     )
-    # Install SAM2 from source with C extension compiled.
+    # Install SAM2 from source (still needed for sam2_video fallback).
     .run_commands(
         "git clone https://github.com/facebookresearch/sam2.git /tmp/sam2",
         "cd /tmp/sam2 && pip install -e '.[all]'",
+    )
+    # Install SAM3 from source.
+    .run_commands(
+        "git clone https://github.com/facebookresearch/sam3.git /tmp/sam3",
+        "cd /tmp/sam3 && pip install -e '.[all]'",
     )
     .add_local_dir("src", remote_path="/root/src")
 )
@@ -249,15 +260,40 @@ def run_on_gpu(
 
 
 def _download_checkpoint(filename: str, dest: str) -> None:
-    """Download a SAM2 checkpoint from the official release."""
+    """Download a SAM2 or SAM3 checkpoint.
+
+    SAM2 checkpoints are fetched from Meta's CDN.
+    SAM3 checkpoints are fetched from HuggingFace (requires HF auth token
+    in the ``HF_TOKEN`` environment variable or ``~/.cache/huggingface``).
+    """
     import os
     import urllib.request
 
-    base_url = "https://dl.fbaipublicfiles.com/segment_anything_2/092824"
-    url = f"{base_url}/{filename}"
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    print(f"  Downloading {url} …")
-    urllib.request.urlretrieve(url, dest)
+
+    if "sam3" in filename.lower() or filename.startswith("sam3"):
+        # SAM3 checkpoint — download from HuggingFace Hub.
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError as exc:
+            raise ImportError(
+                "huggingface_hub is required to download SAM3 checkpoints.\n"
+                "Run: pip install huggingface_hub"
+            ) from exc
+        print(f"  Downloading SAM3 checkpoint from HuggingFace: {filename} …")
+        tmp_path = hf_hub_download(
+            repo_id="facebook/sam3",
+            filename=filename,
+        )
+        import shutil
+
+        shutil.copy2(tmp_path, dest)
+    else:
+        # SAM2 checkpoint — download from Meta CDN.
+        base_url = "https://dl.fbaipublicfiles.com/segment_anything_2/092824"
+        url = f"{base_url}/{filename}"
+        print(f"  Downloading {url} …")
+        urllib.request.urlretrieve(url, dest)
 
 
 # ---------------------------------------------------------------------------

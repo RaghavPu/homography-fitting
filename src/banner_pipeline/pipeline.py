@@ -22,6 +22,7 @@ from banner_pipeline.io import StreamingVideoWriter, get_video_fps, load_frame
 from banner_pipeline.segment.base import ObjectPrompt, SegmentationModel
 from banner_pipeline.segment.sam2_image import SAM2ImageSegmenter
 from banner_pipeline.segment.sam2_video import SAM2VideoSegmenter
+from banner_pipeline.segment.sam3_video import SAM3VideoSegmenter
 from banner_pipeline.ui import collect_clicks
 
 # ---------------------------------------------------------------------------
@@ -259,7 +260,16 @@ def run_pipeline(
 # ---------------------------------------------------------------------------
 
 
-def build_video_segmenter(cfg: dict) -> SAM2VideoSegmenter:
+def build_video_segmenter(cfg: dict) -> SAM2VideoSegmenter | SAM3VideoSegmenter:
+    segmenter_type = cfg.get("type", "sam2_video")
+    if segmenter_type == "sam3_video":
+        kwargs: dict = {}
+        if "checkpoint" in cfg:
+            kwargs["checkpoint"] = cfg["checkpoint"]
+        if "device" in cfg:
+            kwargs["device"] = cfg["device"]
+        return SAM3VideoSegmenter(**kwargs)
+    # Default: SAM2
     kwargs = {}
     if "checkpoint" in cfg:
         kwargs["checkpoint"] = cfg["checkpoint"]

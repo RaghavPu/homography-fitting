@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import sys
 
-import numpy as np
 import torch
 
 # Apple MPS compatibility: fall back to CPU for unsupported ops.
@@ -96,3 +95,49 @@ def load_sam2_video_predictor(
     setup_torch_backend(device)
 
     return build_sam2_video_predictor(model_cfg, checkpoint, device=device)
+
+
+def _ensure_sam3_importable() -> None:
+    """Make sure the ``sam3`` package is importable.
+
+    Mirrors the SAM2 helper: tries a regular import first, then checks for a
+    local ``sam3/`` directory and adjusts ``sys.path`` if needed.
+    """
+    try:
+        import sam3  # noqa: F401
+
+        return
+    except ImportError:
+        pass
+
+    repo = os.path.join(os.getcwd(), "sam3")
+    if os.path.isdir(repo) and repo not in sys.path:
+        sys.path.insert(0, repo)
+
+    try:
+        import sam3  # noqa: F401
+    except ImportError as exc:
+        raise ImportError(
+            "SAM3 is not installed. Either:\n"
+            "  1. pip install git+https://github.com/facebookresearch/sam3.git\n"
+            "  2. Clone into ./sam3 and run: pip install -e ./sam3"
+        ) from exc
+
+
+def load_sam3_video_predictor(
+    checkpoint: str,
+    device: torch.device | None = None,
+):
+    """Build and return a SAM 3 video predictor ready for inference.
+
+    SAM 3 does not take a separate model_cfg argument — the architecture
+    is baked into the package and selected by the checkpoint file.
+    """
+    _ensure_sam3_importable()
+    from sam3.model_builder import build_sam3_video_predictor
+
+    if device is None:
+        device = detect_device()
+    setup_torch_backend(device)
+
+    return build_sam3_video_predictor(checkpoint=checkpoint, device=str(device))
